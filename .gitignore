@@ -1,0 +1,22 @@
+cat > ~/cosmic-code/.gitignore << 'EOF'
+# Build
+build/
+.gradle/
+*.apk
+*.aab
+
+# Local
+local.properties
+*.keystore
+
+# IDE
+.idea/
+*.iml
+
+# Node (agar koi hai)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+EOF

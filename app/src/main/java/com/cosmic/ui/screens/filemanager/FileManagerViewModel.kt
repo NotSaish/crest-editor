@@ -1,96 +1,82 @@
 package com.cosmic.ui.screens.filemanager
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import java.io.File
 
 data class FileItem(
     val name: String,
     val path: String,
-    val isDirectory: Boolean,
-    val size: Long = 0L,
-    val lastModified: Long = 0L
+    val isDirectory: Boolean
 )
 
 class FileManagerViewModel : ViewModel() {
 
-    private val _currentPath = MutableStateFlow("/storage/emulated/0")
+    private val _currentPath =
+        MutableStateFlow("/storage/emulated/0")
     val currentPath: StateFlow<String> = _currentPath
 
-    private val _files = MutableStateFlow<List<FileItem>>(emptyList())
+    private val _files =
+        MutableStateFlow<List<FileItem>>(emptyList())
     val files: StateFlow<List<FileItem>> = _files
 
-    private val _error = MutableStateFlow<String?>(null)
+    private val _error =
+        MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
     init {
-        loadFiles("/sdcard")
+        loadFiles("/storage/emulated/0")
     }
 
     fun loadFiles(path: String) {
-        val dir = File(path)
-        if (!dir.exists() || !dir.isDirectory) {
-            _error.value = "Cannot open folder"
-            return
-        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val dir = File(path)
 
-        _currentPath.value = path
-        _files.value = dir.listFiles()
-            ?.map { file ->
-                FileItem(
-                    name = file.name,
-                    path = file.absolutePath,
-                    isDirectory = file.isDirectory,
-                    size = if (file.isFile) file.length() else 0L,
-                    lastModified = file.lastModified()
-                )
+                if (!dir.exists() || !dir.isDirectory) {
+                    _error.value = "Cannot open folder"
+                    return@launch
+                }
+
+                val list = dir.listFiles()
+                    ?.map { file ->
+                        FileItem(
+                            name = file.name,
+                            path = file.absolutePath,
+                            isDirectory = file.isDirectory
+                        )
+                    }
+                    ?.sortedWith(
+                        compareByDescending<FileItem> { file ->
+                            file.isDirectory
+                        }.thenBy { file ->
+                            file.name.lowercase()
+                        }
+                    )
+                    ?: emptyList()
+
+                _currentPath.value = path
+                _files.value = list
+                _error.value = null
+
+            } catch (e: Exception) {
+                _error.value = "Failed to load folder"
             }
-            ?.sortedWith(compareByDescending<FileItem> { it.isDirectory }
-                .thenBy { it.name.lowercase() })
-            ?: emptyList()
+        }
     }
 
     fun navigateUp() {
-        val parent = File(_currentPath.value).parent
-        if (parent != null) loadFiles(parent)
-    }
-
-    fun createFile(name: String) {
-        val file = File(_currentPath.value, name)
-        if (file.createNewFile()) {
-            loadFiles(_currentPath.value)
-        } else {
-            _error.value = "File already exists"
+        File(_currentPath.value).parent?.let {
+            loadFiles(it)
         }
     }
 
-    fun createFolder(name: String) {
-        val folder = File(_currentPath.value, name)
-        if (folder.mkdir()) {
-            loadFiles(_currentPath.value)
-        } else {
-            _error.value = "Folder already exists"
-        }
-    }
-
-    fun deleteFile(path: String) {
-        val file = File(path)
-        if (file.deleteRecursively()) {
-            loadFiles(_currentPath.value)
-        } else {
-            _error.value = "Cannot delete"
-        }
-    }
-
-    fun renameFile(path: String, newName: String) {
-        val file = File(path)
-        val newFile = File(file.parent, newName)
-        if (file.renameTo(newFile)) {
-            loadFiles(_currentPath.value)
-        } else {
-            _error.value = "Cannot rename"
-        }
+    fun showError(message: String) {
+        _error.value = message
     }
 
     fun clearError() {

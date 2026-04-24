@@ -1,6 +1,5 @@
 package com.cosmic.ui.screens.editor
 
-import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -26,9 +25,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cosmic.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
-// Syntax highlight colors
+// Syntax colors
 val KeywordColor = Color(0xFFCC99CD)
 val StringColor = Color(0xFF7EC699)
 val CommentColor = Color(0xFF999999)
@@ -40,27 +42,42 @@ fun highlightSyntax(code: String, extension: String): AnnotatedString {
         append(code)
 
         val keywords = when (extension) {
-            "py" -> listOf("def", "class", "import", "from", "return", "if", "else", "elif",
+            "py" -> listOf(
+                "def", "class", "import", "from", "return", "if", "else", "elif",
                 "for", "while", "in", "not", "and", "or", "True", "False", "None",
                 "try", "except", "finally", "with", "as", "pass", "break", "continue",
-                "lambda", "yield", "global", "nonlocal", "del", "raise", "assert")
-            "kt" -> listOf("fun", "val", "var", "class", "object", "interface", "when",
+                "lambda", "yield", "global", "nonlocal", "del", "raise", "assert", "print"
+            )
+            "kt" -> listOf(
+                "fun", "val", "var", "class", "object", "interface", "when",
                 "if", "else", "for", "while", "return", "import", "package", "null",
                 "true", "false", "override", "private", "public", "protected", "data",
-                "sealed", "companion", "by", "lazy", "in", "is", "as", "try", "catch")
-            "js", "ts" -> listOf("function", "const", "let", "var", "return", "if", "else",
+                "sealed", "companion", "by", "lazy", "in", "is", "as", "try", "catch",
+                "finally", "throw", "this", "super", "init", "constructor", "suspend"
+            )
+            "js", "ts", "jsx", "tsx" -> listOf(
+                "function", "const", "let", "var", "return", "if", "else",
                 "for", "while", "class", "import", "export", "from", "null", "undefined",
-                "true", "false", "new", "this", "typeof", "instanceof", "try", "catch")
-            "java" -> listOf("public", "private", "protected", "class", "interface", "void",
+                "true", "false", "new", "this", "typeof", "instanceof", "try", "catch",
+                "finally", "throw", "async", "await", "of", "in", "switch", "case"
+            )
+            "java" -> listOf(
+                "public", "private", "protected", "class", "interface", "void",
                 "return", "if", "else", "for", "while", "new", "null", "true", "false",
-                "static", "final", "import", "package", "try", "catch", "extends")
+                "static", "final", "import", "package", "try", "catch", "extends",
+                "implements", "this", "super", "throw", "throws", "abstract", "enum"
+            )
+            "c", "cpp", "h" -> listOf(
+                "int", "float", "double", "char", "void", "return", "if", "else",
+                "for", "while", "include", "define", "struct", "class", "public",
+                "private", "new", "delete", "null", "true", "false", "const", "static"
+            )
             else -> emptyList()
         }
 
-        // Keywords highlight
+        // Keywords
         keywords.forEach { keyword ->
-            val pattern = Regex("\\b$keyword\\b")
-            pattern.findAll(code).forEach { match ->
+            Regex("\\b$keyword\\b").findAll(code).forEach { match ->
                 addStyle(
                     SpanStyle(color = KeywordColor, fontWeight = FontWeight.Bold),
                     match.range.first,
@@ -69,8 +86,8 @@ fun highlightSyntax(code: String, extension: String): AnnotatedString {
             }
         }
 
-        // Strings highlight
-        Regex("\"[^\"]*\"|'[^']*'").findAll(code).forEach { match ->
+        // Strings
+        Regex("\"[^\"\\n]*\"|'[^'\\n]*'").findAll(code).forEach { match ->
             addStyle(
                 SpanStyle(color = StringColor),
                 match.range.first,
@@ -78,10 +95,10 @@ fun highlightSyntax(code: String, extension: String): AnnotatedString {
             )
         }
 
-        // Comments highlight
+        // Comments
         val commentPattern = when (extension) {
-            "py" -> Regex("#[^\n]*")
-            else -> Regex("//[^\n]*|/\\*[^*]*\\*/")
+            "py" -> Regex("#[^\\n]*")
+            else -> Regex("//[^\\n]*|/\\*[\\s\\S]*?\\*/")
         }
         commentPattern.findAll(code).forEach { match ->
             addStyle(
@@ -91,12 +108,22 @@ fun highlightSyntax(code: String, extension: String): AnnotatedString {
             )
         }
 
-        // Numbers highlight
+        // Numbers
         Regex("\\b\\d+\\.?\\d*\\b").findAll(code).forEach { match ->
             addStyle(
                 SpanStyle(color = NumberColor),
                 match.range.first,
                 match.range.last + 1
+            )
+        }
+
+        // Functions
+        Regex("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(").findAll(code).forEach { match ->
+            val nameRange = match.groups[1]?.range ?: return@forEach
+            addStyle(
+                SpanStyle(color = FunctionColor),
+                nameRange.first,
+                nameRange.last + 1
             )
         }
     }
@@ -110,12 +137,15 @@ fun EditorScreen(
     val file = remember { File(fileName) }
     val extension = remember { file.extension.lowercase() }
     val initialContent = remember { if (file.exists()) file.readText() else "" }
+    val scope = rememberCoroutineScope()
 
+    // Initial highlight on open
     var textValue by remember {
-        mutableStateOf(TextFieldValue(initialContent))
+        val highlighted = highlightSyntax(initialContent, extension)
+        mutableStateOf(TextFieldValue(annotatedString = highlighted))
     }
-    var isSaved by remember { mutableStateOf(true) }
 
+    var isSaved by remember { mutableStateOf(true) }
     val verticalScroll = rememberScrollState()
     val horizontalScroll = rememberScrollState()
 
@@ -133,7 +163,11 @@ fun EditorScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = CosmicWhite)
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = CosmicWhite
+                )
             }
 
             Column(modifier = Modifier.weight(1f)) {
@@ -155,14 +189,24 @@ fun EditorScreen(
             }
 
             if (!isSaved) {
-                Text("●", color = CosmicYellow, fontSize = 18.sp,
-                    modifier = Modifier.padding(horizontal = 4.dp))
+                Text(
+                    text = "●",
+                    color = CosmicYellow,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
             }
 
-            IconButton(onClick = {
-                file.writeText(textValue.text)
-                isSaved = true
-            }) {
+            IconButton(
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        file.writeText(textValue.text)
+                        withContext(Dispatchers.Main) {
+                            isSaved = true
+                        }
+                    }
+                }
+            ) {
                 Icon(
                     Icons.Default.Save,
                     contentDescription = "Save",
@@ -171,7 +215,7 @@ fun EditorScreen(
             }
         }
 
-        // Editor Area
+        // Editor
         Row(modifier = Modifier.fillMaxSize()) {
 
             // Line Numbers
@@ -193,13 +237,20 @@ fun EditorScreen(
                 }
             }
 
-            // Code Editor
+            // Code Area
             BasicTextField(
                 value = textValue,
                 onValueChange = { new ->
-                    val highlighted = highlightSyntax(new.text, extension)
-                    textValue = new.copy(annotatedString = highlighted)
+                    // Pehle text update karo — lag nahi lagega
+                    textValue = new
                     isSaved = false
+                    // Background mein highlight karo
+                    scope.launch {
+                        val highlighted = withContext(Dispatchers.Default) {
+                            highlightSyntax(new.text, extension)
+                        }
+                        textValue = new.copy(annotatedString = highlighted)
+                    }
                 },
                 modifier = Modifier
                     .fillMaxSize()

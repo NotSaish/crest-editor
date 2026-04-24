@@ -7,10 +7,11 @@ package com.cosmic.ui.screens.filemanager
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -29,9 +30,12 @@ fun FileManagerScreen(
     onOpenSettings: () -> Unit
 ) {
     val viewModel: FileManagerViewModel = viewModel()
+
     val files by viewModel.files.collectAsState()
     val currentPath by viewModel.currentPath.collectAsState()
     val error by viewModel.error.collectAsState()
+
+    val listState = rememberLazyListState()
 
     Scaffold(
         containerColor = CosmicBlack,
@@ -39,10 +43,21 @@ fun FileManagerScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Cosmic Code", color = CosmicWhite)
-                        Text(currentPath, color = CosmicGray, fontSize = MaterialTheme.typography.labelSmall.fontSize)
+                        Text(
+                            text = "Cosmic Code",
+                            color = CosmicWhite
+                        )
+
+                        Text(
+                            text = currentPath,
+                            color = CosmicGray,
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = CosmicBlack
+                )
             )
         }
     ) { padding ->
@@ -54,85 +69,67 @@ fun FileManagerScreen(
                 .background(CosmicBlack)
         ) {
 
-            if (error != null) {
+            error?.let {
                 Text(
-                    text = error ?: "",
+                    text = it,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(8.dp)
                 )
             }
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier.weight(1f)
             ) {
 
-                // 🔥 BACK ".." ITEM
-                if (currentPath.isNotEmpty() && currentPath != "/storage/emulated/0") {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .combinedClickable(
-                                    onClick = { viewModel.navigateUp() }
-                                )
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Folder,
-                                contentDescription = null,
-                                tint = CosmicBlue
-                            )
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Text(
-                                text = "..",
-                                color = CosmicWhite
-                            )
-                        }
+                if (currentPath != "/storage/emulated/0") {
+                    item(key = "back_button") {
+                        FileRow(
+                            name = "..",
+                            isDirectory = true,
+                            onClick = { viewModel.navigateUp() }
+                        )
                     }
                 }
 
-                // 📁 FILE LIST
-                items(files) { file ->
+                items(
+                    items = files,
+                    key = { it.path }
+                ) { file ->
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = {
-                                    if (file.isDirectory) {
-                                        viewModel.loadFiles(file.path)
-                                    } else {
-                                        onOpenFile(file.path)
-                                    }
+                    FileRow(
+                        name = file.name,
+                        isDirectory = file.isDirectory,
+                        onClick = {
+                            if (file.isDirectory) {
+                                viewModel.loadFiles(file.path)
+                            } else {
+                                val ext = file.name
+                                    .substringAfterLast(".", "")
+                                    .lowercase()
+
+                                val textExtensions = setOf(
+                                    "kt", "java", "kts",
+                                    "xml", "json", "txt",
+                                    "md", "js", "ts",
+                                    "html", "css",
+                                    "py", "c", "cpp",
+                                    "h", "hpp", "rs",
+                                    "go", "php", "sh",
+                                    "yaml", "yml"
+                                )
+
+                                if (ext in textExtensions) {
+                                    onOpenFile(file.path)
+                                } else {
+                                    viewModel.showError("Unsupported file type")
                                 }
-                            )
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-
-                        Icon(
-                            imageVector = if (file.isDirectory)
-                                Icons.Default.Folder
-                            else
-                                Icons.Default.InsertDriveFile,
-                            contentDescription = null,
-                            tint = CosmicBlue
-                        )
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Text(
-                            text = file.name,
-                            color = CosmicWhite
-                        )
-                    }
+                            }
+                        }
+                    )
                 }
             }
 
-            // ⚡ Bottom buttons
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -156,4 +153,42 @@ fun FileManagerScreen(
             }
         }
     }
+}
+
+@Composable
+private fun FileRow(
+    name: String,
+    isDirectory: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+
+        Icon(
+            imageVector = if (isDirectory)
+                Icons.Default.Folder
+            else
+                Icons.Default.InsertDriveFile,
+            contentDescription = null,
+            tint = CosmicBlue
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Text(
+            text = name,
+            color = CosmicWhite,
+            maxLines = 1,
+            modifier = Modifier.weight(1f)
+        )
+    }
+
+    HorizontalDivider(
+        color = CosmicGray.copy(alpha = 0.12f)
+    )
 }
